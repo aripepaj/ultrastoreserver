@@ -1,6 +1,7 @@
 import unicodedata
 import json
 import sys
+import re
 from datetime import datetime
 
 FAILED_LOG_FILE = "failed_orders.log"
@@ -19,16 +20,10 @@ def load_partners(path: str = "partners.json") -> dict:
         return json.load(f)
 
 def log_failed_order(order_id, reason, extra=None):
-    entry = {
-        "ts": datetime.utcnow().isoformat() + "Z",
-        "order_id": order_id,
-        "reason": reason
-    }
+    entry = {"ts": datetime.utcnow().isoformat() + "Z", "order_id": order_id, "reason": reason}
     if extra is not None:
         entry["extra"] = extra
-    # Print so it shows in Render logs
     print("[FAILED_ORDER]", json.dumps(entry, ensure_ascii=False), flush=True)
-    # Also try to write a file (optional)
     try:
         with open(FAILED_LOG_FILE, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -46,12 +41,47 @@ def extract_phone(order: dict):
             or customer.get("phone")
             or default_addr.get("phone"))
 
+def normalize_phone_number_digits_only(phone: str) -> str:
+    """Return digits only (remove + and any non-digits)."""
+    if not phone:
+        return ""
+    return re.sub(r"\D", "", phone)
+
 def extract_address(order: dict) -> str:
     shipping = order.get("shipping_address") or {}
     billing  = order.get("billing_address") or {}
     chosen = shipping if shipping.get("address1") else billing
-    addr = chosen.get("address1") or ""
-    if chosen.get("address2"): addr += f", {chosen['address2']}"
-    if chosen.get("zip"):      addr += f", {chosen['zip']}"
-    if chosen.get("city"):     addr += f", {chosen['city']}"
-    return addr.strip(", ")
+    parts = []
+    if chosen.get("address1"): parts.append(chosen["address1"])
+    if chosen.get("address2"): parts.append(chosen["address2"])
+    if chosen.get("zip"):      parts.append(chosen["zip"])
+    if chosen.get("city"):     parts.append(chosen["city"])
+    return ", ".join(parts)
+
+def variant_text(line_item: dict) -> str:
+    """
+    Build a compact variant description from Shopify line_item.
+    Uses variant_title if present, otherwise constructs from 'properties' (list of dicts name/value),
+    skipping empty or Shopify-internal fields.
+    """
+    vt = line_item.get("variant_title")
+    if vt:
+        return vt
+    props = line_item.get("properties") or []
+    display = []
+    for p in props:
+        name = (p.get("name") or "").strip()
+        value = (p.get("value") or "").strip()
+        if not name or not value:
+            continue
+        if name.startswith("_"):  # internal meta
+            continue
+        display.append(f"{name}: {value}")
+    return " | ".join(display)
+
+def money(amount: float, currency: str = "EUR") -> str:
+    try:
+        v = float(amount)
+    except Exception:
+        v = 0.0
+    return f"{v:.2f} {currency}"

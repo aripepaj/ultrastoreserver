@@ -7,23 +7,17 @@ CHEETAH_PASSWORD = os.getenv("CHEETAH_PASSWORD")
 
 def get_cheetah_token():
     url = "https://postacheetah.com/token"
-    data = {
-        "username": CHEETAH_USERNAME,
-        "password": CHEETAH_PASSWORD,
-        "grant_type": "password"
-    }
+    data = {"username": CHEETAH_USERNAME, "password": CHEETAH_PASSWORD, "grant_type": "password"}
     try:
         resp = requests.post(url, data=data, timeout=20)
     except Exception as e:
         log_failed_order("UNKNOWN", f"Cheetah token request exception: {e}")
         return None
-
     try:
         j = resp.json()
     except Exception:
         log_failed_order("UNKNOWN", "Cheetah token parse error", resp.text)
         return None
-
     token = j.get("access_token")
     if not resp.ok or not token:
         log_failed_order("UNKNOWN", f"Cheetah token not ok status={resp.status_code}", j)
@@ -38,7 +32,6 @@ def add_order_to_cheetah(token, payload):
     except Exception as e:
         log_failed_order(payload.get("Comment","UNKNOWN"), f"Cheetah AddOrder exception: {e}", payload)
         return False, {"error": str(e)}
-
     try:
         result = r.json()
     except Exception:
