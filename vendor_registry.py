@@ -5,12 +5,10 @@ class VendorRegistry:
         self.data = load_partners(partners_path)
 
     def recipients_for(self, vendor_name: str):
-        if vendor_name in self.data:
-            return self.data[vendor_name]
-
+        # normalize lookup
         key = vendor_key(vendor_name)
         for k, v in self.data.items():
             if vendor_key(k) == key:
                 return v
-
+        # fallback
         return self.data.get("Unknown", [])

@@ -12,21 +12,39 @@ def get_cheetah_token():
         "password": CHEETAH_PASSWORD,
         "grant_type": "password"
     }
-    resp = requests.post(url, data=data, timeout=20)
+    try:
+        resp = requests.post(url, data=data, timeout=20)
+    except Exception as e:
+        log_failed_order("UNKNOWN", f"Cheetah token request exception: {e}")
+        return None
+
     try:
         j = resp.json()
     except Exception:
         log_failed_order("UNKNOWN", "Cheetah token parse error", resp.text)
         return None
-    return j.get("access_token")
+
+    token = j.get("access_token")
+    if not resp.ok or not token:
+        log_failed_order("UNKNOWN", f"Cheetah token not ok status={resp.status_code}", j)
+        return None
+    return token
 
 def add_order_to_cheetah(token, payload):
     headers = {"Authorization": f"Bearer {token}"}
     url = "https://postacheetah.com/api/PostaAPI/AddOrder"
-    r = requests.post(url, json=payload, headers=headers, timeout=20)
+    try:
+        r = requests.post(url, json=payload, headers=headers, timeout=20)
+    except Exception as e:
+        log_failed_order(payload.get("Comment","UNKNOWN"), f"Cheetah AddOrder exception: {e}", payload)
+        return False, {"error": str(e)}
+
     try:
         result = r.json()
     except Exception:
         result = {"raw": r.text}
+    result["_http_status"] = r.status_code
     success = r.ok and not (isinstance(result, dict) and result.get("error"))
+    if not success:
+        log_failed_order(payload.get("Comment","UNKNOWN"), "Cheetah add order failed", result)
     return success, result
