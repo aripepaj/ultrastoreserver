@@ -1,0 +1,25 @@
+{
+  "ADLWatches": ["support@adlwatches.com", "adlwatches01@gmail.com"],
+  "Automem": ["automem.kosova@gmail.com"],
+  "Ceps - KS": ["info@primus-ks.com"],
+  "Gorilla Wear Kosova": ["info@gorillawearkosova.com"],
+  "Hair Fix Natyral": ["hairfixnaturals@gmail.com"],
+  "Honda KS": ["honda-ks@hotmail.com"],
+  "Kolosi Idea Mall": ["info@idea-rks.com"],
+  "kubikmall": ["support@kubikmall.com"],
+  "MelodiaPx": ["info@melodiapx.com"],
+  "metron": ["info@metron-ks.com"],
+  "Parts Center": ["info@parts-center.ch"],
+  "Promax Store": ["info@protradekosova.com"],
+  "Sivegeta": ["sivegetashop@gmail.com"],
+  "Ultrastore Tech": ["TODO@ultrastore-tech.com"],
+  "vamp-ks": ["TODO@vamp-ks.com"],
+
+  "Unknown": ["support@kubikmall.com"],
+
+  "_unused_pool": [
+    "viona@eurocosmetics.biz",
+    "info@primus-ks.com",
+    "support@kubikmall.com"
+  ]
+}

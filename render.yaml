@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: cheetah-webhook
+    runtime: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn -w 2 -b 0.0.0.0:$PORT app:app"
+    envVars:
+      - key: CHEETAH_USERNAME
+        sync: false
+      - key: CHEETAH_PASSWORD
+        sync: false
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: MAIL_BCC
+        sync: false
