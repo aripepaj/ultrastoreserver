@@ -213,8 +213,9 @@ def index():
 
 @app.route("/webhook", methods=['POST'])
 def webhook():
-    order = request.json
-    resp = process_order(order)
+    data = request.get_json(silent=True) or {}
+    print("Shopify webhook received order_id:", data.get("id"))
+    resp = process_order(data)
     return jsonify(resp)
 
 def process_order(order):
