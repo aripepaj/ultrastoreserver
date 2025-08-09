@@ -1,6 +1,5 @@
 import unicodedata
 import json
-import sys
 import re
 from datetime import datetime
 
@@ -41,11 +40,22 @@ def extract_phone(order: dict):
             or customer.get("phone")
             or default_addr.get("phone"))
 
-def normalize_phone_number_digits_only(phone: str) -> str:
-    """Return digits only (remove + and any non-digits)."""
+def phone_kosovo_local(phone: str) -> str:
+    """
+    Convert +383xxxx or 00383xxxx to local 0xxxx, and strip all non-digits.
+    Examples:
+      +38344123456  -> 044123456
+      0038345123456 -> 045123456
+      044 123 456   -> 044123456
+    """
     if not phone:
         return ""
-    return re.sub(r"\D", "", phone)
+    p = str(phone).strip().replace(" ", "")
+    if p.startswith("+383"):
+        return "0" + re.sub(r"\D", "", p[4:])
+    if p.startswith("00383"):
+        return "0" + re.sub(r"\D", "", p[5:])
+    return re.sub(r"\D", "", p)
 
 def extract_address(order: dict) -> str:
     shipping = order.get("shipping_address") or {}
@@ -61,22 +71,25 @@ def extract_address(order: dict) -> str:
 def variant_text(line_item: dict) -> str:
     """
     Build a compact variant description from Shopify line_item.
-    Uses variant_title if present, otherwise constructs from 'properties' (list of dicts name/value),
-    skipping empty or Shopify-internal fields.
+    Uses variant_title if present, else constructs from 'properties' (list of dicts name/value),
+    skipping empty or Shopify-internal fields (name starting with '_').
     """
     vt = line_item.get("variant_title")
     if vt:
         return vt
     props = line_item.get("properties") or []
     display = []
-    for p in props:
-        name = (p.get("name") or "").strip()
-        value = (p.get("value") or "").strip()
-        if not name or not value:
-            continue
-        if name.startswith("_"):  # internal meta
-            continue
-        display.append(f"{name}: {value}")
+    if isinstance(props, list):
+        for p in props:
+            if not isinstance(p, dict):
+                continue
+            name = (p.get("name") or "").strip()
+            value = (p.get("value") or "").strip()
+            if not name or not value:
+                continue
+            if name.startswith("_"):  # internal meta
+                continue
+            display.append(f"{name}: {value}")
     return " | ".join(display)
 
 def money(amount: float, currency: str = "EUR") -> str:
