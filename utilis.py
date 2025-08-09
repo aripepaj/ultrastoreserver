@@ -40,13 +40,13 @@ def extract_phone(order: dict):
             or customer.get("phone")
             or default_addr.get("phone"))
 
+# ---- Phone formatting helpers ----
+
 def phone_kosovo_local(phone: str) -> str:
     """
-    Convert +383xxxx or 00383xxxx to local 0xxxx, and strip all non-digits.
-    Examples:
-      +38344123456  -> 044123456
-      0038345123456 -> 045123456
-      044 123 456   -> 044123456
+    +38344xxxxxx  -> 044xxxxxx
+    0038344xxxxxx -> 044xxxxxx
+    Otherwise: strip all non-digits.
     """
     if not phone:
         return ""
@@ -56,6 +56,44 @@ def phone_kosovo_local(phone: str) -> str:
     if p.startswith("00383"):
         return "0" + re.sub(r"\D", "", p[5:])
     return re.sub(r"\D", "", p)
+
+def phone_international(phone: str) -> str:
+    """
+    Return +383######### (digits, with a single leading +) if phone looks like Kosovo.
+    Otherwise best-effort +digits.
+    """
+    if not phone:
+        return ""
+    digits = re.sub(r"\D", "", str(phone))
+    # If it already starts with 383..., keep it, else try to detect 0-leading local and convert.
+    if digits.startswith("383"):
+        return "+" + digits
+    if digits.startswith("0"):
+        # assume local Kosovo mobile/landline, drop leading 0 and prepend country code
+        return "+383" + digits[1:]
+    # fallback
+    return "+" + digits
+
+def phone_digits_only(phone: str) -> str:
+    return re.sub(r"\D", "", str(phone or ""))
+
+def format_phone_for_cheetah(raw: str, mode: str) -> str:
+    """
+    mode: 'local' (default), 'intl', or 'digits'
+    """
+    if not raw:
+        return ""
+    mode = (mode or "local").strip().lower()
+    if mode == "intl":
+        formatted = phone_international(raw)
+    elif mode == "digits":
+        formatted = phone_digits_only(raw)
+    else:
+        formatted = phone_kosovo_local(raw)
+    print(f"[PHONE] mode='{mode}' raw='{raw}' -> '{formatted}'", flush=True)
+    return formatted
+
+# ---- Address & Variant helpers ----
 
 def extract_address(order: dict) -> str:
     shipping = order.get("shipping_address") or {}
@@ -98,3 +136,53 @@ def money(amount: float, currency: str = "EUR") -> str:
     except Exception:
         v = 0.0
     return f"{v:.2f} {currency}"
+
+# ---- Pricing (qty-aware, discount-aware) ----
+
+def line_total_amount(li: dict) -> float:
+    """
+    Robust per-line TOTAL:
+      total = unit_price * qty  -  line_discounts
+    Prefers discount_allocations; falls back to total_discount.
+    """
+    try:
+        qty = int(li.get("quantity", 1) or 1)
+    except Exception:
+        qty = 1
+
+    # Shopify line_item.price is the UNIT price before discounts
+    try:
+        unit = float(li.get("price", 0) or 0)
+    except Exception:
+        unit = 0.0
+
+    total = unit * qty
+
+    # Prefer discount_allocations (per-line)
+    alloc = 0.0
+    for d in (li.get("discount_allocations") or []):
+        try:
+            alloc += float(d.get("amount", 0) or 0)
+        except Exception:
+            pass
+
+    if alloc <= 0:
+        # fallback: total_discount (string)
+        try:
+            alloc = float(li.get("total_discount", 0) or 0)
+        except Exception:
+            alloc = 0.0
+
+    total -= alloc
+    if total < 0:
+        total = 0.0
+    return total
+
+def unit_effective_price(li: dict) -> float:
+    """Unit price AFTER discounts = line_total / qty."""
+    try:
+        qty = int(li.get("quantity", 1) or 1)
+    except Exception:
+        qty = 1
+    total = line_total_amount(li)
+    return (total / qty) if qty > 0 else 0.0

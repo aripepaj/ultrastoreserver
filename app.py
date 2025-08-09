@@ -7,9 +7,11 @@ from utilis import (
     normalize_city,
     extract_phone,
     extract_address,
-    phone_kosovo_local,   # <- convert +383/00383 to local 0...
-    variant_text,         # <- build variant text (size/color/etc.)
-    money,                # <- format money with currency
+    format_phone_for_cheetah,  # <- format toggle + logging helper
+    variant_text,
+    money,
+    line_total_amount,         # <- robust per-line TOTAL (qty-aware)
+    unit_effective_price,      # <- unit AFTER discounts
 )
 from vendor_registry import VendorRegistry
 from email_client import send_email
@@ -20,6 +22,12 @@ registry = VendorRegistry()
 
 ALWAYS_EMAIL = os.getenv("ALWAYS_EMAIL", "true").lower() == "true"
 SHOPIFY_WEBHOOK_SECRET = os.getenv("SHOPIFY_WEBHOOK_SECRET", "")
+
+# How to format phone before sending to Cheetah:
+#   local  -> +383/00383 -> 0 + rest (your requested format)
+#   intl   -> force +383...(digits)
+#   digits -> digits only, no leading plus or zero normalization
+PHONE_FORMAT = os.getenv("PHONE_FORMAT", "local").strip().lower()
 
 city_to_id = {
     "prishtina": 1, "prishtine": 1,
@@ -88,23 +96,6 @@ def is_prepaid(order: dict) -> bool:
         return True
     return False
 
-def line_effective_price(li: dict) -> float:
-    """
-    Per-line effective unit price: prefer discounted_price; subtract per-line discount allocations if present.
-    """
-    try:
-        base = float(li.get("discounted_price", li.get("price", 0)) or 0)
-    except Exception:
-        base = 0.0
-    alloc = 0.0
-    for d in (li.get("discount_allocations") or []):
-        try:
-            alloc += float(d.get("amount", 0) or 0)
-        except Exception:
-            pass
-    eff = base - alloc
-    return eff if eff > 0 else 0.0
-
 # ---------- core processing ----------
 
 def process_order(order: dict):
@@ -123,7 +114,7 @@ def process_order(order: dict):
     # contact info
     billing = order.get("billing_address") or {}
     phone_raw = extract_phone(order)
-    phone_for_cheetah = phone_kosovo_local(phone_raw)  # +383/00383 -> 0, strip non-digits
+    phone_for_cheetah = format_phone_for_cheetah(phone_raw, PHONE_FORMAT)
     address = extract_address(order)
     first_name = shipping.get("first_name") or billing.get("first_name")
     last_name  = shipping.get("last_name")  or billing.get("last_name")
@@ -137,7 +128,7 @@ def process_order(order: dict):
         return {"error": "Incomplete shipping/contact information"}
 
     if not phone_for_cheetah:
-        log_failed_order(order.get("id","UNKNOWN"), f"No usable phone (raw='{phone_raw}') in Shopify payload", order)
+        log_failed_order(order.get("id","UNKNOWN"), f"No usable phone after format (raw='{phone_raw}', mode='{PHONE_FORMAT}')", order)
 
     # group by vendor
     vendor_items = defaultdict(list)
@@ -164,11 +155,10 @@ def process_order(order: dict):
 
     results = []
     for vendor, items in vendor_items.items():
-        # per-vendor subtotal (items only)
+        # per-vendor subtotal (items only) — qty-aware, discounts-aware
         items_total = 0.0
         for it in items:
-            qty = int(it.get("quantity", 1) or 1)
-            items_total += line_effective_price(it) * qty
+            items_total += line_total_amount(it)
 
         amount_for_courier = 0.0 if prepaid else items_total
 
@@ -176,15 +166,20 @@ def process_order(order: dict):
             "FullName": f"{first_name} {last_name}",
             "Address": address,
             "IDCity": str(city_id),
-            "Phone": phone_for_cheetah or "",
+            "Phone": str(phone_for_cheetah or ""),  # make sure it's a string
             "Amount": f"{amount_for_courier:.2f}",
-            "Comment": f"Shopify Order ID: {order.get('id','UNKNOWN')} | {'PREPAID' if prepaid else 'COD'} | raw phone: {phone_raw or 'N/A'}",
+            "Comment": f"Shopify Order ID: {order.get('id','UNKNOWN')} | "
+                       f"{'PREPAID' if prepaid else 'COD'} | "
+                       f"raw phone: {phone_raw or 'N/A'} | mode: {PHONE_FORMAT}",
             "ShipmentPackage": 1,
             "CanOpen": False,
             "Description": f"Vendor: {vendor}",
             "Fragile": True,
             "Declared": True
         }
+
+        # LOG the exact phone we are sending so we can prove it to ourselves
+        print(f"[CHEETAH][PAYLOAD] vendor={vendor} phone='{payload['Phone']}' amount='{payload['Amount']}'", flush=True)
 
         ok, cheetah_result = add_order_to_cheetah(token, payload)
         print(f"[CHEETAH] vendor={vendor} ok={ok} result={cheetah_result}", flush=True)
@@ -213,8 +208,7 @@ def _email_vendors(order, vendor_items, address, city_id, phone, first_name, las
     for vendor, items in vendor_items.items():
         items_total = 0.0
         for it in items:
-            qty = int(it.get("quantity", 1) or 1)
-            items_total += line_effective_price(it) * qty
+            items_total += line_total_amount(it)
         amount_for_courier = 0.0 if prepaid else items_total
         try:
             info = _email_one_vendor(order, vendor, items, first_name, last_name, address, phone, city_id,
@@ -229,7 +223,6 @@ def _email_vendors(order, vendor_items, address, city_id, phone, first_name, las
 
 def _email_one_vendor(order, vendor, items, first_name, last_name, address, phone, city_id, cheetah_result,
                       prepaid=False, items_total=0.0, currency="EUR", amount_for_courier=0.0):
-    # Shipment #
     shipment_no = (
         (cheetah_result or {}).get("ShipmentNumber")
         or (cheetah_result or {}).get("ID")
@@ -239,25 +232,22 @@ def _email_one_vendor(order, vendor, items, first_name, last_name, address, phon
     badge = "PREPAID" if prepaid else "COD"
     badge_color = "#0d6efd" if prepaid else "#dc3545"
 
-    # Build lines for text + HTML (variant details & line totals). No images.
     lines_txt = []
     rows_html = []
     for it in items:
         sku = it.get("sku") or ""
         title = it.get("title", "Unknown")
         qty = int(it.get("quantity", 1) or 1)
-        unit = line_effective_price(it)
-        line_total = unit * qty
-        variant = variant_text(it)  # e.g., "Size: M | Color: Black"
+        line_total = line_total_amount(it)
+        unit = unit_effective_price(it)
+        variant = variant_text(it)
 
-        # text line
         parts = [title]
         if variant: parts.append(f"[{variant}]")
         if sku: parts.append(f"(SKU: {sku})")
         parts.append(f"x{qty} @ {money(unit, currency)} = {money(line_total, currency)}")
         lines_txt.append("- " + " ".join(parts))
 
-        # HTML row (no image column)
         def safe(s): return (s or "").replace("<","&lt;").replace(">","&gt;")
         rows_html.append(f"""
           <tr>
@@ -274,8 +264,7 @@ def _email_one_vendor(order, vendor, items, first_name, last_name, address, phon
 
     order_id = order.get("id", "UNKNOWN")
 
-    # Subject + bodies
-    subject = f"[New Shipment] {vendor} | {badge} | Order {order_id} | Cheetah #{shipment_no}"
+    subject = f"[Porosi e re] | Porosi {order_id}"
     body_text = (
         f"Vendor: {vendor}\n"
         f"Shopify Order ID: {order_id}\n"
