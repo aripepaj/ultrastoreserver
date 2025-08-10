@@ -130,6 +130,21 @@ def process_order(order: dict):
     if not phone_for_cheetah:
         log_failed_order(order.get("id","UNKNOWN"), f"No usable phone after format (raw='{phone_raw}', mode='{PHONE_FORMAT}')", order)
 
+    print(
+    "[CHEETAH][PAYLOAD]",
+    {
+        "Phone": payload["Phone"],
+        "IDCity": payload["IDCity"],
+        "Amount": payload["Amount"],
+        "types": {
+            "Phone": type(payload["Phone"]).__name__,
+            "IDCity": type(payload["IDCity"]).__name__,
+            "Amount": type(payload["Amount"]).__name__
+        }
+    },
+    flush=True
+    )
+
     # group by vendor
     vendor_items = defaultdict(list)
     for it in order.get("line_items", []):
@@ -264,65 +279,67 @@ def _email_one_vendor(order, vendor, items, first_name, last_name, address, phon
 
     order_id = order.get("id", "UNKNOWN")
 
-    subject = f"[Porosi e re] | Porosi {order_id}"
+    subject = f"[Porosi e re] | Porosi {order_id}" 
+    badge = "PARAPAGUAR" if prepaid else "PAGESË NË DORËZIM"
+    badge_color = "#0d6efd" if prepaid else "#dc3545"
+    
     body_text = (
-        f"Vendor: {vendor}\n"
-        f"Shopify Order ID: {order_id}\n"
-        f"Cheetah Shipment No: {shipment_no}\n"
-        f"City ID (Cheetah): {city_id}\n"
-        f"Payment: {badge}\n"
-        f"Vendor Subtotal: {money(items_total, currency)}\n"
-        f"Amount to Collect: {money(amount_for_courier, currency)}\n\n"
-        f"Customer:\n"
-        f"  {first_name} {last_name}\n"
-        f"  {address}\n"
-        f"  Phone: {phone or 'N/A'}\n\n"
-        f"Items:\n" + "\n".join(lines_txt)
+    f"Shitësi: {vendor}\n"
+    f"ID e Porosisë: {order_id}\n"
+    f"Numri i Dërgesës (Cheetah): {shipment_no}\n"
+    f"Pagesa: {badge}\n"
+    f"Nëntotal i Shitësit: {money(items_total, currency)}\n"
+    f"Shuma për t’u Arkëtuar: {money(amount_for_courier, currency)}\n\n"
+    f"Klienti:\n"
+    f"  {first_name} {last_name}\n"
+    f"  {address}\n"
+    f"  Tel: {phone or 'N/A'}\n\n"
+    f"Artikujt:\n" + "\n".join(lines_txt)
     )
-
+    
     items_table = f"""
-      <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px">
-        <thead>
-          <tr>
-            <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;">Item / Variant / SKU</th>
-            <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;">Qty</th>
-            <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;">Unit</th>
-            <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;">Line Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {''.join(rows_html)}
-        </tbody>
-      </table>
-    """
+  <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px">
+    <thead>
+      <tr>
+        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;">Artikulli / Varianti / SKU</th>
+        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;">Sasia</th>
+        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;">Çmimi (njësia)</th>
+        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;">Totali i rreshtit</th>
+      </tr>
+    </thead>
+    <tbody>
+      {''.join(rows_html)}
+    </tbody>
+  </table>
+"""
+    
     body_html = f"""
-      <div style="font-family:Arial,Helvetica,sans-serif;color:#222;font-size:14px;line-height:1.45">
-        <h2 style="margin:0 0 8px 0;">New Shipment – {vendor}</h2>
-        <div style="margin:0 0 10px 0;">
-          <span style="display:inline-block;padding:4px 8px;border-radius:6px;background:{badge_color};color:#fff;font-weight:600;">
-            {badge}
-          </span>
-        </div>
-        <p style="margin:0 0 10px 0">
-          <b>Shopify Order:</b> {order_id}<br>
-          <b>Cheetah Shipment No:</b> {shipment_no}<br>
-          <b>City ID (Cheetah):</b> {city_id}<br>
-          <b>Vendor Subtotal:</b> {money(items_total, currency)}<br>
-          <b>Amount to Collect:</b> {money(amount_for_courier, currency)}
-        </p>
+  <div style="font-family:Arial,Helvetica,sans-serif;color:#222;font-size:14px;line-height:1.45">
+    <h2 style="margin:0 0 8px 0;">Dërgesë e Re – {vendor}</h2>
+    <div style="margin:0 0 10px 0;">
+      <span style="display:inline-block;padding:4px 8px;border-radius:6px;background:{badge_color};color:#fff;font-weight:600;">
+        {badge}
+      </span>
+    </div>
+    <p style="margin:0 0 10px 0">
+      <b>ID e Porosisë (Shopify):</b> {order_id}<br>
+      <b>Numri i Dërgesës (Cheetah):</b> {shipment_no}<br>
+      <b>ID e Qytetit (Cheetah):</b> {city_id}<br>
+      <b>Nëntotal i Shitësit:</b> {money(items_total, currency)}<br>
+      <b>Shuma për t’u Arkëtuar:</b> {money(amount_for_courier, currency)}
+    </p>
 
-        <h3 style="margin:16px 0 8px 0;">Customer</h3>
-        <p style="margin:0 0 10px 0;">
-          {first_name} {last_name}<br>
-          {address}<br>
-          Phone: {phone or 'N/A'}
-        </p>
+    <h3 style="margin:16px 0 8px 0;">Klienti</h3>
+    <p style="margin:0 0 10px 0;">
+      {first_name} {last_name}<br>
+      {address}<br>
+      Tel: {phone or 'N/A'}
+    </p>
 
-        <h3 style="margin:16px 0 8px 0;">Items</h3>
-        {items_table}
-      </div>
-    """
-
+    <h3 style="margin:16px 0 8px 0;">Artikujt</h3>
+    {items_table}
+  </div>
+"""
     recipients = registry.recipients_for(vendor)
     print(f"[EMAIL] vendor='{vendor}' recipients={recipients}", flush=True)
     if not recipients:
