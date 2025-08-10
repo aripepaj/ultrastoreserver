@@ -128,21 +128,14 @@ def process_order(order: dict):
         return {"error": "Incomplete shipping/contact information"}
 
     if not phone_for_cheetah:
-        log_failed_order(order.get("id","UNKNOWN"), f"No usable phone after format (raw='{phone_raw}', mode='{PHONE_FORMAT}')", order)
+        log_failed_order(order.get("id","UNKNOWN"),
+                         f"No usable phone after format (raw='{phone_raw}', mode='{PHONE_FORMAT}')", order)
 
+    # Loud, final phone log
     print(
-    "[CHEETAH][PAYLOAD]",
-    {
-        "Phone": payload["Phone"],
-        "IDCity": payload["IDCity"],
-        "Amount": payload["Amount"],
-        "types": {
-            "Phone": type(payload["Phone"]).__name__,
-            "IDCity": type(payload["IDCity"]).__name__,
-            "Amount": type(payload["Amount"]).__name__
-        }
-    },
-    flush=True
+        f"[PHONE][FINAL] order_id={order.get('id','UNKNOWN')} "
+        f"mode='{PHONE_FORMAT}' raw='{phone_raw}' formatted='{phone_for_cheetah}'",
+        flush=True
     )
 
     # group by vendor
@@ -180,12 +173,15 @@ def process_order(order: dict):
         payload = {
             "FullName": f"{first_name} {last_name}",
             "Address": address,
-            "IDCity": str(city_id),
-            "Phone": str(phone_for_cheetah or ""),  # make sure it's a string
-            "Amount": f"{amount_for_courier:.2f}",
-            "Comment": f"Shopify Order ID: {order.get('id','UNKNOWN')} | "
-                       f"{'PREPAID' if prepaid else 'COD'} | "
-                       f"raw phone: {phone_raw or 'N/A'} | mode: {PHONE_FORMAT}",
+            "IDCity": city_id,                      # int (not string)
+            "Phone": str(phone_for_cheetah or ""),  # string
+            "Amount": round(amount_for_courier, 2), # number (not string)
+            "Comment": (
+                f"Shopify Order ID: {order.get('id','UNKNOWN')} | "
+                f"{'PREPAID' if prepaid else 'COD'} | "
+                f"raw phone: {phone_raw or 'N/A'} | mode: {PHONE_FORMAT} | "
+                f"formatted: {phone_for_cheetah or 'EMPTY'}"
+            ),
             "ShipmentPackage": 1,
             "CanOpen": False,
             "Description": f"Vendor: {vendor}",
@@ -193,7 +189,21 @@ def process_order(order: dict):
             "Declared": True
         }
 
-        # LOG the exact phone we are sending so we can prove it to ourselves
+        # Debug what we send (with types)
+        print(
+            "[CHEETAH][PAYLOAD]",
+            {
+                "Phone": payload["Phone"],
+                "IDCity": payload["IDCity"],
+                "Amount": payload["Amount"],
+                "types": {
+                    "Phone": type(payload["Phone"]).__name__,
+                    "IDCity": type(payload["IDCity"]).__name__,
+                    "Amount": type(payload["Amount"]).__name__,
+                }
+            },
+            flush=True
+        )
         print(f"[CHEETAH][PAYLOAD] vendor={vendor} phone='{payload['Phone']}' amount='{payload['Amount']}'", flush=True)
 
         ok, cheetah_result = add_order_to_cheetah(token, payload)
